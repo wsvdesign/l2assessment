@@ -5,11 +5,61 @@ import Groq from 'groq-sdk';
  * Using Groq API for AI-powered categorization
  */
 
-// Initialize Groq client
-const groq = new Groq({
-  apiKey: import.meta.env.VITE_GROQ_API_KEY,
-  dangerouslyAllowBrowser: true // Required for browser-based calls (not recommended for production!)
-});
+// Initialize Groq client lazily so the app still boots without an API key.
+const groqApiKey = import.meta.env.VITE_GROQ_API_KEY;
+const groq = groqApiKey
+  ? new Groq({
+      apiKey: groqApiKey,
+      dangerouslyAllowBrowser: true // Required for browser-based calls (not recommended for production!)
+    })
+  : null;
+
+const categoryLabels = {
+  billing: 'Billing Issue',
+  technical: 'Technical Problem',
+  feature: 'Feature Request',
+  inquiry: 'General Inquiry'
+};
+
+const billingKeywords = ['bill', 'payment', 'charge', 'invoice', 'credit card', 'subscription', 'refund', 'cancel'];
+const technicalKeywords = ['bug', 'error', 'broken', 'not working', 'crash', 'down', 'server', 'loading', 'slow', 'issue', 'problem', 'cannot access', 'cannot log in', "can't log in"];
+const featureKeywords = ['feature', 'add', 'improve', 'would like to see', 'suggestion', 'wish', 'enhancement', 'roadmap'];
+const inquiryKeywords = ['how', 'what', 'when', 'where', 'can i', 'is there', '?', 'hours', 'pricing', 'thank', 'thanks', 'appreciate', 'love', 'great'];
+
+function detectSecondaryCategory(primaryCategory, scores) {
+  const ranked = Object.entries(scores)
+    .sort((a, b) => b[1] - a[1])
+    .map(([key]) => key);
+
+  const secondaryKey = ranked.find((key) => categoryLabels[key] !== primaryCategory && scores[key] > 0);
+  return secondaryKey ? categoryLabels[secondaryKey] : null;
+}
+
+function extractJsonObject(rawContent) {
+  const trimmed = rawContent.trim();
+
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    return trimmed;
+  }
+
+  const firstBraceIndex = trimmed.indexOf('{');
+  const lastBraceIndex = trimmed.lastIndexOf('}');
+  if (firstBraceIndex !== -1 && lastBraceIndex !== -1 && lastBraceIndex > firstBraceIndex) {
+    return trimmed.slice(firstBraceIndex, lastBraceIndex + 1);
+  }
+
+  throw new Error('No JSON object found in model response.');
+}
+
+function normalizeCategory(rawValue = '') {
+  const value = rawValue.toLowerCase();
+
+  if (value.includes('billing')) return 'Billing Issue';
+  if (value.includes('technical') || value.includes('bug')) return 'Technical Problem';
+  if (value.includes('feature')) return 'Feature Request';
+  if (value.includes('inquiry') || value.includes('question')) return 'General Inquiry';
+  return 'Unknown';
+}
 
 /**
  * Categorize a customer support message using Groq AI
@@ -18,37 +68,41 @@ const groq = new Groq({
  * @returns {Promise<{category: string, reasoning: string}>}
  */
 export async function categorizeMessage(message) {
+  if (!groq) {
+    return getMockCategorization(message);
+  }
+
   try {
     const response = await groq.chat.completions.create({
       model: "llama-3.3-70b-versatile",
       messages: [
         {
+          role: 'system',
+          content: 'You are a customer support triage classifier. Return strictly valid JSON only.'
+        },
+        {
           role: "user",
-          content: `Categorize this customer support message: ${message}`
+          content: `Classify this customer support message and return a JSON object with exactly these keys: primary_category, secondary_category, confidence, rationale.\n\nAllowed categories: Billing Issue, Technical Problem, Feature Request, General Inquiry, Unknown.\nUse null for secondary_category if none.\nconfidence must be a number between 0 and 1.\n\nMessage: ${message}`
         }
       ],
-      temperature: 0.7,
+      temperature: 0.1,
     });
 
-    const content = response.choices[0].message.content;
-    
-    const lines = content.split('\n');
-    let category = "Unknown";
-    let reasoning = content;
-    
-    if (content.toLowerCase().includes('billing')) {
-      category = "Billing Issue";
-    } else if (content.toLowerCase().includes('technical') || content.toLowerCase().includes('bug')) {
-      category = "Technical Problem";
-    } else if (content.toLowerCase().includes('feature')) {
-      category = "Feature Request";
-    } else if (content.toLowerCase().includes('inquiry') || content.toLowerCase().includes('question')) {
-      category = "General Inquiry";
-    }
-    
+    const content = response.choices?.[0]?.message?.content || '';
+    const parsed = JSON.parse(extractJsonObject(content));
+    const category = normalizeCategory(parsed.primary_category);
+    const secondaryCategory = parsed.secondary_category
+      ? normalizeCategory(parsed.secondary_category)
+      : null;
+    const confidence = typeof parsed.confidence === 'number'
+      ? Math.max(0, Math.min(1, parsed.confidence))
+      : 0.5;
+
     return {
       category,
-      reasoning: content
+      secondaryCategory,
+      confidence,
+      reasoning: parsed.rationale || content
     };
   } catch (error) {
     console.warn('Groq API failed, using mock response:', error.message);
@@ -61,105 +115,57 @@ export async function categorizeMessage(message) {
  */
 function getMockCategorization(message) {
   const lowerMessage = message.toLowerCase();
-  
-  // Array of possible reasoning variations for each category
-  const reasoningVariations = {
-    billing: [
-      "Based on keywords related to payments and billing, this appears to be a billing-related inquiry. The customer may need assistance with account charges or payment issues.",
-      "This message contains billing terminology. The customer is likely experiencing issues with payments, invoices, or account charges.",
-      "The message references financial matters related to the customer's account. This suggests a billing or payment concern that requires attention.",
-    ],
-    technical: [
-      "This message describes technical difficulties or system errors. The customer is reporting functionality issues that may require engineering review.",
-      "Based on error-related keywords, this appears to be a technical support issue. The customer is experiencing problems with product functionality.",
-      "The message indicates a technical problem or bug. This requires investigation from the technical support team.",
-      "System-related issues are mentioned in this message. The customer needs technical assistance to resolve functionality problems.",
-    ],
-    feature: [
-      "This message suggests improvements or new functionality. The customer is providing product feedback and feature suggestions.",
-      "The customer is requesting enhancements to the product. This appears to be a feature request that should be reviewed by the product team.",
-      "Based on the language used, this seems to be a suggestion for product improvements rather than a support issue.",
-    ],
-    inquiry: [
-      "This appears to be a general question about the product or service. The customer is seeking information or clarification.",
-      "The message contains questions that don't indicate a specific problem. This is likely a general inquiry requiring informational support.",
-      "Based on the question format, this seems to be an information request rather than a technical or billing issue.",
-    ],
-    positive: [
-      "This message contains positive sentiment and appreciation. While not a support request, it may warrant acknowledgment.",
-      "The customer is expressing satisfaction or gratitude. This doesn't appear to require immediate support action.",
-    ],
-    ambiguous: [
-      "The message content is unclear or doesn't match standard support categories. Manual review may be needed for proper categorization.",
-      "This message doesn't contain clear indicators for automatic categorization. Human review recommended.",
-    ]
+
+  const scores = {
+    billing: 0,
+    technical: 0,
+    feature: 0,
+    inquiry: 0
   };
-  
-  // Helper to get random reasoning
-  const getRandomReasoning = (category) => {
-    const reasons = reasoningVariations[category];
-    return reasons[Math.floor(Math.random() * reasons.length)];
-  };
-  
-  // Billing-related detection
-  if (lowerMessage.includes('bill') || lowerMessage.includes('payment') || 
-      lowerMessage.includes('charge') || lowerMessage.includes('invoice') ||
-      lowerMessage.includes('credit card') || lowerMessage.includes('subscription') ||
-      lowerMessage.includes('refund') || lowerMessage.includes('cancel') && lowerMessage.includes('account')) {
-    return {
-      category: "Billing Issue",
-      reasoning: getRandomReasoning('billing')
-    };
+
+  billingKeywords.forEach((keyword) => {
+    if (lowerMessage.includes(keyword)) scores.billing += 1;
+  });
+
+  technicalKeywords.forEach((keyword) => {
+    if (lowerMessage.includes(keyword)) scores.technical += 1;
+  });
+
+  featureKeywords.forEach((keyword) => {
+    if (lowerMessage.includes(keyword)) scores.feature += 1;
+  });
+
+  inquiryKeywords.forEach((keyword) => {
+    if (lowerMessage.includes(keyword)) scores.inquiry += 1;
+  });
+
+  const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+  const [primaryKey, primaryScore] = ranked[0];
+  const category = primaryScore > 0 ? categoryLabels[primaryKey] : 'Unknown';
+  const secondaryCategory = detectSecondaryCategory(category, scores);
+  const totalMatches = Object.values(scores).reduce((total, value) => total + value, 0);
+  const confidence = totalMatches > 0 ? Math.min(0.95, primaryScore / totalMatches + 0.2) : 0.3;
+
+  let reasoning = 'Message does not include enough specific support signals, so manual review is recommended.';
+
+  if (category === 'Billing Issue') {
+    reasoning = 'Detected billing language such as payment, subscription, refund, or charge-related terms.';
+  } else if (category === 'Technical Problem') {
+    reasoning = 'Detected technical failure language such as crash, down, error, broken, or access problems.';
+  } else if (category === 'Feature Request') {
+    reasoning = 'Detected product enhancement language such as add, improve, feature, or suggestion terms.';
+  } else if (category === 'General Inquiry') {
+    reasoning = 'Detected informational question patterns without clear billing or technical failure indicators.';
   }
-  
-  // Technical problem detection
-  if (lowerMessage.includes('bug') || lowerMessage.includes('error') || 
-      lowerMessage.includes('broken') || lowerMessage.includes('not working') ||
-      lowerMessage.includes('crash') || lowerMessage.includes('down') || 
-      lowerMessage.includes('server') || lowerMessage.includes('loading') ||
-      lowerMessage.includes('slow') || lowerMessage.includes('issue') ||
-      lowerMessage.includes('problem') && !lowerMessage.includes('no problem')) {
-    return {
-      category: "Technical Problem",
-      reasoning: getRandomReasoning('technical')
-    };
+
+  if (secondaryCategory) {
+    reasoning += ` Secondary signal detected: ${secondaryCategory}.`;
   }
-  
-  // Feature request detection
-  if (lowerMessage.includes('feature') || lowerMessage.includes('add') && (lowerMessage.includes('please') || lowerMessage.includes('could')) ||
-      lowerMessage.includes('improve') || lowerMessage.includes('would like to see') ||
-      lowerMessage.includes('suggestion') || lowerMessage.includes('wish') ||
-      lowerMessage.includes('could you') && lowerMessage.includes('add') ||
-      lowerMessage.includes('enhancement') || lowerMessage.includes('would be great')) {
-    return {
-      category: "Feature Request",
-      reasoning: getRandomReasoning('feature')
-    };
-  }
-  
-  // Positive feedback detection
-  if ((lowerMessage.includes('thank') || lowerMessage.includes('thanks') || lowerMessage.includes('appreciate')) &&
-      !lowerMessage.includes('but') && !lowerMessage.includes('however')) {
-    return {
-      category: "General Inquiry",
-      reasoning: getRandomReasoning('positive')
-    };
-  }
-  
-  // Question/inquiry detection
-  if (lowerMessage.includes('how') || lowerMessage.includes('what') || 
-      lowerMessage.includes('when') || lowerMessage.includes('where') ||
-      lowerMessage.includes('can i') || lowerMessage.includes('is there') ||
-      lowerMessage.includes('?')) {
-    return {
-      category: "General Inquiry",
-      reasoning: getRandomReasoning('inquiry')
-    };
-  }
-  
-  // Fallback for ambiguous messages
+
   return {
-    category: "General Inquiry",
-    reasoning: getRandomReasoning('ambiguous')
+    category,
+    secondaryCategory,
+    confidence,
+    reasoning
   };
 }

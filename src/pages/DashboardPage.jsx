@@ -5,10 +5,14 @@ function DashboardPage() {
     total: 0,
     today: 0,
     highUrgencyPercent: 0,
-    avgPerDay: 0
+    avgPerDay: 0,
+    escalatedCount: 0,
+    avgConfidence: 0,
+    avgResponseTime: 0
   })
   const [categoryData, setCategoryData] = useState([])
   const [urgencyData, setUrgencyData] = useState({ High: 0, Medium: 0, Low: 0 })
+  const [categoryMetrics, setCategoryMetrics] = useState([])
 
   useEffect(() => {
     loadDashboardData()
@@ -17,26 +21,85 @@ function DashboardPage() {
   const loadDashboardData = () => {
     const history = JSON.parse(localStorage.getItem('triageHistory') || '[]')
     const today = new Date().toDateString()
-    const todayMessages = history.filter(item => 
+    const todayMessages = history.filter(item =>
       new Date(item.timestamp).toDateString() === today
     )
 
-    // Calculate stats
+    // Calculate escalated messages (High urgency)
     const highUrgency = history.filter(h => h.urgency === 'High').length
     const totalDays = history.length > 0 ? 7 : 1
-    
+
+    // Calculate average confidence
+    const confidenceValues = history
+      .filter(h => typeof h.confidence === 'number')
+      .map(h => h.confidence)
+    const avgConfidence =
+      confidenceValues.length > 0
+        ? Math.round((confidenceValues.reduce((a, b) => a + b, 0) / confidenceValues.length) * 100)
+        : 0
+
+    // Calculate average response time in milliseconds
+    const sortedByTime = [...history].sort(
+      (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+    )
+    const timeDiffs = []
+    for (let i = 1; i < sortedByTime.length; i++) {
+      const diff = new Date(sortedByTime[i].timestamp) - new Date(sortedByTime[i - 1].timestamp)
+      timeDiffs.push(diff)
+    }
+    const avgResponseTime =
+      timeDiffs.length > 0
+        ? Math.round(timeDiffs.reduce((a, b) => a + b, 0) / timeDiffs.length / 1000)
+        : 0
+
     setStats({
       total: history.length,
       today: todayMessages.length,
       highUrgencyPercent: history.length > 0 ? Math.round((highUrgency / history.length) * 100) : 0,
-      avgPerDay: Math.round(history.length / totalDays)
+      avgPerDay: Math.round(history.length / totalDays),
+      escalatedCount: highUrgency,
+      avgConfidence,
+      avgResponseTime
     })
 
-    // Category distribution
+    // Category distribution with metrics
     const categories = {}
+    const categoryStats = {}
+
     history.forEach(item => {
       categories[item.category] = (categories[item.category] || 0) + 1
+
+      if (!categoryStats[item.category]) {
+        categoryStats[item.category] = {
+          highCount: 0,
+          totalCount: 0,
+          confidenceSum: 0,
+          confidenceCount: 0
+        }
+      }
+
+      categoryStats[item.category].totalCount += 1
+      if (item.urgency === 'High') {
+        categoryStats[item.category].highCount += 1
+      }
+      if (typeof item.confidence === 'number') {
+        categoryStats[item.category].confidenceSum += item.confidence
+        categoryStats[item.category].confidenceCount += 1
+      }
     })
+
+    const categoryMetricsList = Object.entries(categoryStats).map(([category, stats]) => ({
+      category,
+      count: categories[category],
+      escalationRate:
+        stats.totalCount > 0 ? Math.round((stats.highCount / stats.totalCount) * 100) : 0,
+      avgConfidence:
+        stats.confidenceCount > 0
+          ? Math.round((stats.confidenceSum / stats.confidenceCount) * 100)
+          : 0
+    }))
+
+    setCategoryMetrics(categoryMetricsList)
     setCategoryData(Object.entries(categories).map(([name, count]) => ({ name, count })))
 
     // Urgency breakdown
@@ -66,12 +129,35 @@ function DashboardPage() {
             <div className="text-3xl font-bold text-green-600">{stats.today}</div>
           </div>
           <div className="bg-white rounded-lg shadow p-6">
-            <div className="text-sm text-gray-600 mb-1">High Urgency</div>
+            <div className="text-sm text-gray-600 mb-1">Escalated (High)</div>
+            <div className="text-3xl font-bold text-red-600">{stats.escalatedCount}</div>
+            <div className="text-xs text-gray-500 mt-1">{stats.highUrgencyPercent}% of total</div>
+          </div>
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="text-sm text-gray-600 mb-1">Avg Confidence</div>
+            <div className="text-3xl font-bold text-purple-600">{stats.avgConfidence}%</div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-4 gap-4 mb-8">
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="text-sm text-gray-600 mb-1">Avg Per Day</div>
+            <div className="text-3xl font-bold text-orange-600">{stats.avgPerDay}</div>
+          </div>
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="text-sm text-gray-600 mb-1">Avg Response Time</div>
+            <div className="text-3xl font-bold text-indigo-600">{stats.avgResponseTime}s</div>
+            <div className="text-xs text-gray-500 mt-1">between analyses</div>
+          </div>
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="text-sm text-gray-600 mb-1">High Urgency %</div>
             <div className="text-3xl font-bold text-red-600">{stats.highUrgencyPercent}%</div>
           </div>
           <div className="bg-white rounded-lg shadow p-6">
-            <div className="text-sm text-gray-600 mb-1">Avg Per Day</div>
-            <div className="text-3xl font-bold text-purple-600">{stats.avgPerDay}</div>
+            <div className="text-sm text-gray-600 mb-1">SLA Status</div>
+            <div className={`text-2xl font-bold ${stats.highUrgencyPercent > 30 ? 'text-red-600' : 'text-green-600'}`}>
+              {stats.highUrgencyPercent > 30 ? 'At Risk' : 'Healthy'}
+            </div>
           </div>
         </div>
 
@@ -92,7 +178,7 @@ function DashboardPage() {
                         <span className="text-gray-600">{cat.count} ({percentage.toFixed(0)}%)</span>
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div 
+                        <div
                           className="bg-blue-500 h-2 rounded-full"
                           style={{ width: `${percentage}%` }}
                         />
@@ -114,7 +200,7 @@ function DashboardPage() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center">
                     <div className="w-4 h-4 bg-red-500 rounded mr-2"></div>
-                    <span className="text-gray-700">High</span>
+                    <span className="text-gray-700">High (Escalated)</span>
                   </div>
                   <span className="text-2xl font-bold text-red-600">{urgencyData.High}</span>
                 </div>
@@ -137,15 +223,68 @@ function DashboardPage() {
           </div>
         </div>
 
+        {/* Category Metrics Table */}
+        {categoryMetrics.length > 0 && (
+          <div className="bg-white rounded-lg shadow p-6 mt-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Category SLA Metrics</h2>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Category</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Count</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Escalation Rate</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Avg Confidence</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-100">
+                  {categoryMetrics.map((metric) => (
+                    <tr key={metric.category}>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-800">{metric.category}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{metric.count}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <span
+                          className={`px-3 py-1 rounded-full font-semibold text-white text-xs ${
+                            metric.escalationRate > 40
+                              ? 'bg-red-600'
+                              : metric.escalationRate > 20
+                                ? 'bg-yellow-600'
+                                : 'bg-green-600'
+                          }`}
+                        >
+                          {metric.escalationRate}%
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{metric.avgConfidence}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* Insights Section */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mt-6">
-          <h2 className="text-lg font-bold text-blue-900 mb-2">💡 Insights</h2>
+          <h2 className="text-lg font-bold text-blue-900 mb-2">💡 SLA & Performance Insights</h2>
           <div className="space-y-2 text-sm text-blue-800">
             {stats.highUrgencyPercent > 30 && (
               <p>⚠️ High urgency messages represent {stats.highUrgencyPercent}% of total volume - consider additional support resources</p>
             )}
-            {stats.today > 10 && (
+            {stats.escalatedCount > 20 && stats.total > 0 && (
+              <p>🚨 {stats.escalatedCount} messages escalated - prioritize these for immediate attention</p>
+            )}
+            {stats.avgConfidence < 70 && (
+              <p>❓ Average classification confidence is {stats.avgConfidence}% - consider reviewing low-confidence results</p>
+            )}
+            {stats.avgResponseTime > 5 && (
+              <p>⏱️ Average response time is {stats.avgResponseTime}s - high volume periods detected</p>
+            )}
+            {stats.today > 20 && (
               <p>📈 High activity today with {stats.today} messages analyzed</p>
+            )}
+            {stats.highUrgencyPercent <= 20 && stats.avgConfidence >= 80 && stats.total > 0 && (
+              <p>✅ System performing well - low escalation rate and high confidence</p>
             )}
             {stats.total === 0 && (
               <p>👋 Start by analyzing some messages to see insights here</p>

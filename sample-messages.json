@@ -1,4 +1,16 @@
 {
+  "batchTestRunMessages": [
+    "Our production API is down and customers cannot log in.",
+    "Hi team, thanks for the great support earlier today!",
+    "Could you add export to CSV for reports?",
+    "My payment failed and now dashboard access is blocked.",
+    "What are your support hours on weekends?",
+    "App crashes every time I upload an invoice PDF.",
+    "Please cancel my subscription and issue a refund.",
+    "I love the new UI, great work!",
+    "URGENT!!! data sync is broken after latest deploy",
+    "Can I change my plan from Starter to Pro monthly?"
+  ],
   "testMessages": [
     {
       "id": 1,

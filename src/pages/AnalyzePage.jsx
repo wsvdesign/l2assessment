@@ -3,11 +3,16 @@ import ReactMarkdown from 'react-markdown'
 import { categorizeMessage } from '../utils/llmHelper'
 import { calculateUrgency } from '../utils/urgencyScorer'
 import { getRecommendedAction } from '../utils/templates'
+import { importFromCSV } from '../utils/exportUtils'
+import sampleMessages from '../../sample-messages.json'
 
 function AnalyzePage() {
   const [message, setMessage] = useState('')
   const [results, setResults] = useState(null)
+  const [batchResults, setBatchResults] = useState([])
   const [isLoading, setIsLoading] = useState(false)
+
+  const batchTestMessages = sampleMessages.batchTestRunMessages || []
 
   useEffect(() => {
     // Check for example message from home page
@@ -26,20 +31,23 @@ function AnalyzePage() {
 
     setIsLoading(true)
     setResults(null)
+    setBatchResults([])
     
     try {
       // Run categorization (LLM call)
-      const { category, reasoning } = await categorizeMessage(message)
+      const { category, reasoning, confidence, secondaryCategory } = await categorizeMessage(message)
       
       // Calculate urgency (rule-based)
       const urgency = calculateUrgency(message)
       
       // Get recommended action (template-based)
-      const recommendedAction = getRecommendedAction(category)
+      const recommendedAction = getRecommendedAction(category, urgency, message)
       
       const analysisResult = {
         message,
         category,
+        secondaryCategory,
+        confidence,
         urgency,
         recommendedAction,
         reasoning,
@@ -60,9 +68,98 @@ function AnalyzePage() {
     }
   }
 
+  const handleRunBatchTest = async () => {
+    if (!batchTestMessages.length) {
+      alert('No batch test messages available.')
+      return
+    }
+
+    setIsLoading(true)
+    setResults(null)
+
+    try {
+      const generatedResults = []
+
+      for (const testMessage of batchTestMessages) {
+        const { category, reasoning, confidence, secondaryCategory } = await categorizeMessage(testMessage)
+        const urgency = calculateUrgency(testMessage)
+        const recommendedAction = getRecommendedAction(category, urgency, testMessage)
+
+        generatedResults.push({
+          message: testMessage,
+          category,
+          secondaryCategory,
+          confidence,
+          urgency,
+          recommendedAction,
+          reasoning,
+          timestamp: new Date().toISOString(),
+          isBatchResult: true
+        })
+      }
+
+      setBatchResults(generatedResults)
+
+      const history = JSON.parse(localStorage.getItem('triageHistory') || '[]')
+      history.push(...generatedResults)
+      localStorage.setItem('triageHistory', JSON.stringify(history))
+    } catch (error) {
+      console.error('Error running batch test:', error)
+      alert('Error running batch test. Please try again.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const handleClear = () => {
     setMessage('')
     setResults(null)
+    setBatchResults([])
+  }
+
+  const handleBulkUpload = async (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setIsLoading(true)
+    setResults(null)
+
+    try {
+      const messages = await importFromCSV(file)
+      const generatedResults = []
+
+      for (const msg of messages) {
+        const { category, reasoning, confidence, secondaryCategory } = await categorizeMessage(msg.message)
+        const urgency = calculateUrgency(msg.message)
+        const recommendedAction = getRecommendedAction(category, urgency, msg.message)
+
+        generatedResults.push({
+          message: msg.message,
+          category,
+          secondaryCategory,
+          confidence,
+          urgency,
+          recommendedAction,
+          reasoning,
+          timestamp: new Date().toISOString(),
+          isBulkResult: true
+        })
+      }
+
+      setBatchResults(generatedResults)
+
+      const history = JSON.parse(localStorage.getItem('triageHistory') || '[]')
+      history.push(...generatedResults)
+      localStorage.setItem('triageHistory', JSON.stringify(history))
+
+      alert(`Successfully processed ${generatedResults.length} messages from file`)
+      event.target.value = ''
+    } catch (error) {
+      console.error('Error processing file:', error)
+      alert(`Error processing file: ${error.message}`)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -92,11 +189,11 @@ function AnalyzePage() {
           </div>
 
           {/* Action Buttons */}
-          <div className="flex space-x-3">
+          <div className="flex flex-wrap gap-3">
             <button
               onClick={handleAnalyze}
               disabled={isLoading}
-              className={`flex-1 py-3 rounded-lg font-semibold ${
+              className={`flex-1 min-w-[180px] py-3 rounded-lg font-semibold ${
                 isLoading
                   ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   : 'bg-blue-600 text-white hover:bg-blue-700'
@@ -115,14 +212,79 @@ function AnalyzePage() {
               )}
             </button>
             <button
+              onClick={handleRunBatchTest}
+              disabled={isLoading}
+              className={`flex-1 min-w-[180px] py-3 rounded-lg font-semibold ${
+                isLoading
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-indigo-600 text-white hover:bg-indigo-700'
+              }`}
+            >
+              {isLoading ? 'Running Batch Test...' : 'Run 10-Message Test'}
+            </button>
+            <label className="flex-1 min-w-[180px]">
+              <input
+                type="file"
+                accept=".csv"
+                onChange={handleBulkUpload}
+                disabled={isLoading}
+                className="hidden"
+              />
+              <button
+                onClick={(e) => e.currentTarget.parentElement.querySelector('input').click()}
+                disabled={isLoading}
+                className={`w-full py-3 rounded-lg font-semibold ${
+                  isLoading
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-green-600 text-white hover:bg-green-700'
+                }`}
+              >
+                📤 Upload CSV
+              </button>
+            </label>
+            <button
               onClick={handleClear}
               disabled={isLoading}
-              className="px-6 py-3 border border-gray-300 rounded-lg font-semibold text-gray-700 hover:bg-gray-50"
+              className="px-6 py-3 border border-gray-300 rounded-lg font-semibold text-gray-700 hover:bg-gray-50 min-w-[120px]"
             >
               Clear
             </button>
           </div>
         </div>
+
+        {batchResults.length > 0 && (
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">10-Message Batch Test Results</h2>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">#</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Message</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Category</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Secondary</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Confidence</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Urgency</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-100">
+                  {batchResults.map((item, index) => (
+                    <tr key={`${item.timestamp}-${index}`}>
+                      <td className="px-3 py-3 text-sm text-gray-700">{index + 1}</td>
+                      <td className="px-3 py-3 text-sm text-gray-700 max-w-sm">{item.message}</td>
+                      <td className="px-3 py-3 text-sm text-gray-700">{item.category}</td>
+                      <td className="px-3 py-3 text-sm text-gray-700">{item.secondaryCategory || 'None'}</td>
+                      <td className="px-3 py-3 text-sm text-gray-700">{typeof item.confidence === 'number' ? `${Math.round(item.confidence * 100)}%` : 'N/A'}</td>
+                      <td className="px-3 py-3 text-sm text-gray-700">{item.urgency}</td>
+                      <td className="px-3 py-3 text-sm text-gray-700">{item.recommendedAction}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Results Section */}
         {results && (
@@ -134,6 +296,20 @@ function AnalyzePage() {
                 <div className="text-sm font-semibold text-gray-600 mb-1">Category</div>
                 <div className="inline-block bg-blue-100 text-blue-800 px-4 py-2 rounded-lg font-semibold">
                   {results.category}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-sm font-semibold text-gray-600 mb-1">Secondary Category</div>
+                <div className="inline-block bg-indigo-100 text-indigo-800 px-4 py-2 rounded-lg font-semibold">
+                  {results.secondaryCategory || 'None'}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-sm font-semibold text-gray-600 mb-1">Confidence</div>
+                <div className="inline-block bg-slate-100 text-slate-800 px-4 py-2 rounded-lg font-semibold">
+                  {typeof results.confidence === 'number' ? `${Math.round(results.confidence * 100)}%` : 'N/A'}
                 </div>
               </div>
 
@@ -170,7 +346,7 @@ function AnalyzePage() {
             <div className="mt-6 pt-4 border-t border-gray-200">
               <button
                 onClick={() => {
-                  const text = `Category: ${results.category}\nUrgency: ${results.urgency}\nRecommendation: ${results.recommendedAction}\n\nReasoning: ${results.reasoning}`
+                  const text = `Category: ${results.category}\nSecondary Category: ${results.secondaryCategory || 'None'}\nConfidence: ${typeof results.confidence === 'number' ? `${Math.round(results.confidence * 100)}%` : 'N/A'}\nUrgency: ${results.urgency}\nRecommendation: ${results.recommendedAction}\n\nReasoning: ${results.reasoning}`
                   navigator.clipboard.writeText(text)
                   alert('Results copied to clipboard!')
                 }}

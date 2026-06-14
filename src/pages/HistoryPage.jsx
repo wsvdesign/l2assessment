@@ -1,10 +1,16 @@
 import { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
+import { exportToCSV, exportToJSON } from '../utils/exportUtils'
 
 function HistoryPage() {
   const [history, setHistory] = useState([])
   const [filter, setFilter] = useState('all')
   const [expandedIndex, setExpandedIndex] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [urgencyFilter, setUrgencyFilter] = useState('all')
+  const [confidenceMinFilter, setConfidenceMinFilter] = useState(0)
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
 
   useEffect(() => {
     loadHistory()
@@ -22,64 +28,183 @@ function HistoryPage() {
     }
   }
 
-  const sortedHistory = [...history].sort((a, b) => 
-    a.message.localeCompare(b.message)
+  const sortedHistory = [...history].sort((a, b) =>
+    new Date(b.timestamp) - new Date(a.timestamp)
   )
-  
-  const filteredHistory = filter === 'all' 
-    ? sortedHistory 
-    : sortedHistory.filter(item => item.category === filter)
 
-  const categories = [...new Set(history.map(item => item.category))]
+  const filteredHistory = sortedHistory.filter((item) => {
+    const categoryMatch = filter === 'all' || item.category === filter
+    const searchMatch =
+      searchQuery === '' ||
+      item.message.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.category.toLowerCase().includes(searchQuery.toLowerCase())
+    const urgencyMatch = urgencyFilter === 'all' || item.urgency === urgencyFilter
+    const confidenceMatch =
+      typeof item.confidence === 'number'
+        ? item.confidence * 100 >= confidenceMinFilter
+        : true
+
+    let dateMatch = true
+    if (dateFrom || dateTo) {
+      const itemDate = new Date(item.timestamp).toDateString()
+      if (dateFrom) {
+        const fromDate = new Date(dateFrom).toDateString()
+        dateMatch = dateMatch && itemDate >= fromDate
+      }
+      if (dateTo) {
+        const toDate = new Date(dateTo).toDateString()
+        dateMatch = dateMatch && itemDate <= toDate
+      }
+    }
+
+    return categoryMatch && searchMatch && urgencyMatch && confidenceMatch && dateMatch
+  })
+
+  const categories = [...new Set(history.map((item) => item.category))]
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-6xl mx-auto px-4">
+      <div className="max-w-7xl mx-auto px-4">
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Analysis History</h1>
-              <p className="text-gray-600">View and manage past message analyses</p>
+              <p className="text-gray-600">View, filter, and export past message analyses</p>
             </div>
-            {history.length > 0 && (
-              <button
-                onClick={clearHistory}
-                className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 font-semibold"
-              >
-                Clear All
-              </button>
-            )}
+            <div className="flex gap-2">
+              {history.length > 0 && (
+                <>
+                  <button
+                    onClick={() => exportToCSV(filteredHistory)}
+                    className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 font-semibold text-sm"
+                  >
+                    📥 Export CSV
+                  </button>
+                  <button
+                    onClick={() => exportToJSON(filteredHistory)}
+                    className="bg-purple-500 text-white px-4 py-2 rounded-lg hover:bg-purple-600 font-semibold text-sm"
+                  >
+                    📥 Export JSON
+                  </button>
+                </>
+              )}
+              {history.length > 0 && (
+                <button
+                  onClick={clearHistory}
+                  className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 font-semibold"
+                >
+                  Clear All
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* Filter Buttons */}
+          {/* Advanced Filters */}
           {history.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-6">
-              <button
-                onClick={() => setFilter('all')}
-                className={`px-4 py-2 rounded-lg font-semibold ${
-                  filter === 'all'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                All ({history.length})
-              </button>
-              {categories.map(category => (
-                <button
-                  key={category}
-                  onClick={() => setFilter(category)}
-                  className={`px-4 py-2 rounded-lg font-semibold ${
-                    filter === category
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  {category} ({history.filter(h => h.category === category).length})
-                </button>
-              ))}
+            <div className="space-y-4 border-t border-gray-200 pt-4">
+              {/* Search */}
+              <div>
+                <input
+                  type="text"
+                  placeholder="Search by message or category..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              {/* Filter Row 1 */}
+              <div className="grid grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Category</label>
+                  <select
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="all">All Categories</option>
+                    {categories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Urgency</label>
+                  <select
+                    value={urgencyFilter}
+                    onChange={(e) => setUrgencyFilter(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="all">All Urgencies</option>
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Min Confidence</label>
+                  <select
+                    value={confidenceMinFilter}
+                    onChange={(e) => setConfidenceMinFilter(Number(e.target.value))}
+                    className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="0">All Confidence</option>
+                    <option value="50">50%+</option>
+                    <option value="70">70%+</option>
+                    <option value="85">85%+</option>
+                    <option value="95">95%+</option>
+                  </select>
+                </div>
+
+                <div>
+                  <button
+                    onClick={() => {
+                      setSearchQuery('')
+                      setFilter('all')
+                      setUrgencyFilter('all')
+                      setConfidenceMinFilter(0)
+                      setDateFrom('')
+                      setDateTo('')
+                    }}
+                    className="w-full mt-6 bg-gray-200 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-300 font-semibold text-sm"
+                  >
+                    Reset Filters
+                  </button>
+                </div>
+              </div>
+
+              {/* Filter Row 2 - Date Range */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">From Date</label>
+                  <input
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => setDateFrom(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">To Date</label>
+                  <input
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => setDateTo(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Results count */}
+              <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">
+                Showing {filteredHistory.length} of {history.length} results
+              </div>
             </div>
           )}
-        </div>
 
         {/* History List */}
         {filteredHistory.length === 0 && (
@@ -120,6 +245,16 @@ function HistoryPage() {
                       <span className="text-xs bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-semibold">
                         {item.category}
                       </span>
+                      {item.secondaryCategory && (
+                        <span className="text-xs bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full font-semibold">
+                          {item.secondaryCategory}
+                        </span>
+                      )}
+                      {typeof item.confidence === 'number' && (
+                        <span className="text-xs bg-slate-100 text-slate-800 px-3 py-1 rounded-full font-semibold">
+                          {Math.round(item.confidence * 100)}%
+                        </span>
+                      )}
                       <span className={`text-xs px-3 py-1 rounded-full font-semibold ${
                         item.urgency === 'High' ? 'bg-red-200 text-red-900' :
                         item.urgency === 'Medium' ? 'bg-yellow-200 text-yellow-900' :
@@ -166,6 +301,7 @@ function HistoryPage() {
             </div>
           ))}
         </div>
+      </div>
       </div>
     </div>
   )
