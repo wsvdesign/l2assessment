@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { exportToCSV, exportToJSON } from '../utils/exportUtils'
 
 function HistoryPage() {
-  const [history, setHistory] = useState([])
+  const [history, setHistory] = useState(() => JSON.parse(localStorage.getItem('triageHistory') || '[]'))
   const [filter, setFilter] = useState('all')
   const [expandedIndex, setExpandedIndex] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -11,15 +11,6 @@ function HistoryPage() {
   const [confidenceMinFilter, setConfidenceMinFilter] = useState(0)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-
-  useEffect(() => {
-    loadHistory()
-  }, [])
-
-  const loadHistory = () => {
-    const savedHistory = JSON.parse(localStorage.getItem('triageHistory') || '[]')
-    setHistory(savedHistory)
-  }
 
   const clearHistory = () => {
     if (window.confirm('Are you sure you want to clear all history?')) {

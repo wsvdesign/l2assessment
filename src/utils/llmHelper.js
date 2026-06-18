@@ -22,7 +22,7 @@ const categoryLabels = {
 };
 
 const billingKeywords = ['bill', 'payment', 'charge', 'invoice', 'credit card', 'subscription', 'refund', 'cancel'];
-const technicalKeywords = ['bug', 'error', 'broken', 'not working', 'crash', 'down', 'server', 'loading', 'slow', 'issue', 'problem', 'cannot access', 'cannot log in', "can't log in"];
+const technicalKeywords = ['bug', 'error', 'broken', 'not working', 'crash', 'down', 'server', 'loading', 'slow', 'issue', 'problem', 'cannot access', 'cannot log in', "can't log in", 'login', 'log in', 'failing', 'failed', 'outage', 'deploy', 'production', 'unable to'];
 const featureKeywords = ['feature', 'add', 'improve', 'would like to see', 'suggestion', 'wish', 'enhancement', 'roadmap'];
 const inquiryKeywords = ['how', 'what', 'when', 'where', 'can i', 'is there', '?', 'hours', 'pricing', 'thank', 'thanks', 'appreciate', 'love', 'great'];
 
@@ -90,13 +90,27 @@ export async function categorizeMessage(message) {
 
     const content = response.choices?.[0]?.message?.content || '';
     const parsed = JSON.parse(extractJsonObject(content));
-    const category = normalizeCategory(parsed.primary_category);
-    const secondaryCategory = parsed.secondary_category
+    let category = normalizeCategory(parsed.primary_category);
+    let secondaryCategory = parsed.secondary_category
       ? normalizeCategory(parsed.secondary_category)
       : null;
-    const confidence = typeof parsed.confidence === 'number'
+    let confidence = typeof parsed.confidence === 'number'
       ? Math.max(0, Math.min(1, parsed.confidence))
       : 0.5;
+
+    // Safety net: if model returns Unknown, fall back to deterministic keyword scoring.
+    if (category === 'Unknown') {
+      const fallback = getMockCategorization(message);
+      category = fallback.category;
+      if (!secondaryCategory || secondaryCategory === 'Unknown') {
+        secondaryCategory = fallback.secondaryCategory;
+      }
+      confidence = Math.max(confidence, fallback.confidence);
+    }
+
+    if (secondaryCategory === category || secondaryCategory === 'Unknown') {
+      secondaryCategory = null;
+    }
 
     return {
       category,

@@ -1,114 +1,86 @@
-import { useState, useEffect } from 'react'
-
 function DashboardPage() {
-  const [stats, setStats] = useState({
-    total: 0,
-    today: 0,
-    highUrgencyPercent: 0,
-    avgPerDay: 0,
-    escalatedCount: 0,
-    avgConfidence: 0,
-    avgResponseTime: 0
-  })
-  const [categoryData, setCategoryData] = useState([])
-  const [urgencyData, setUrgencyData] = useState({ High: 0, Medium: 0, Low: 0 })
-  const [categoryMetrics, setCategoryMetrics] = useState([])
+  const history = JSON.parse(localStorage.getItem('triageHistory') || '[]')
+  const today = new Date().toDateString()
+  const todayMessages = history.filter(item =>
+    new Date(item.timestamp).toDateString() === today
+  )
 
-  useEffect(() => {
-    loadDashboardData()
-  }, [])
+  const highUrgency = history.filter(h => h.urgency === 'High').length
+  const totalDays = history.length > 0 ? 7 : 1
 
-  const loadDashboardData = () => {
-    const history = JSON.parse(localStorage.getItem('triageHistory') || '[]')
-    const today = new Date().toDateString()
-    const todayMessages = history.filter(item =>
-      new Date(item.timestamp).toDateString() === today
-    )
+  const confidenceValues = history
+    .filter(h => typeof h.confidence === 'number')
+    .map(h => h.confidence)
+  const avgConfidence =
+    confidenceValues.length > 0
+      ? Math.round((confidenceValues.reduce((a, b) => a + b, 0) / confidenceValues.length) * 100)
+      : 0
 
-    // Calculate escalated messages (High urgency)
-    const highUrgency = history.filter(h => h.urgency === 'High').length
-    const totalDays = history.length > 0 ? 7 : 1
-
-    // Calculate average confidence
-    const confidenceValues = history
-      .filter(h => typeof h.confidence === 'number')
-      .map(h => h.confidence)
-    const avgConfidence =
-      confidenceValues.length > 0
-        ? Math.round((confidenceValues.reduce((a, b) => a + b, 0) / confidenceValues.length) * 100)
-        : 0
-
-    // Calculate average response time in milliseconds
-    const sortedByTime = [...history].sort(
-      (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
-    )
-    const timeDiffs = []
-    for (let i = 1; i < sortedByTime.length; i++) {
-      const diff = new Date(sortedByTime[i].timestamp) - new Date(sortedByTime[i - 1].timestamp)
-      timeDiffs.push(diff)
-    }
-    const avgResponseTime =
-      timeDiffs.length > 0
-        ? Math.round(timeDiffs.reduce((a, b) => a + b, 0) / timeDiffs.length / 1000)
-        : 0
-
-    setStats({
-      total: history.length,
-      today: todayMessages.length,
-      highUrgencyPercent: history.length > 0 ? Math.round((highUrgency / history.length) * 100) : 0,
-      avgPerDay: Math.round(history.length / totalDays),
-      escalatedCount: highUrgency,
-      avgConfidence,
-      avgResponseTime
-    })
-
-    // Category distribution with metrics
-    const categories = {}
-    const categoryStats = {}
-
-    history.forEach(item => {
-      categories[item.category] = (categories[item.category] || 0) + 1
-
-      if (!categoryStats[item.category]) {
-        categoryStats[item.category] = {
-          highCount: 0,
-          totalCount: 0,
-          confidenceSum: 0,
-          confidenceCount: 0
-        }
-      }
-
-      categoryStats[item.category].totalCount += 1
-      if (item.urgency === 'High') {
-        categoryStats[item.category].highCount += 1
-      }
-      if (typeof item.confidence === 'number') {
-        categoryStats[item.category].confidenceSum += item.confidence
-        categoryStats[item.category].confidenceCount += 1
-      }
-    })
-
-    const categoryMetricsList = Object.entries(categoryStats).map(([category, stats]) => ({
-      category,
-      count: categories[category],
-      escalationRate:
-        stats.totalCount > 0 ? Math.round((stats.highCount / stats.totalCount) * 100) : 0,
-      avgConfidence:
-        stats.confidenceCount > 0
-          ? Math.round((stats.confidenceSum / stats.confidenceCount) * 100)
-          : 0
-    }))
-
-    setCategoryMetrics(categoryMetricsList)
-    setCategoryData(Object.entries(categories).map(([name, count]) => ({ name, count })))
-
-    // Urgency breakdown
-    const urgency = { High: 0, Medium: 0, Low: 0 }
-    history.forEach(item => {
-      urgency[item.urgency] = (urgency[item.urgency] || 0) + 1
-    })
-    setUrgencyData(urgency)
+  const sortedByTime = [...history].sort(
+    (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+  )
+  const timeDiffs = []
+  for (let i = 1; i < sortedByTime.length; i++) {
+    const diff = new Date(sortedByTime[i].timestamp) - new Date(sortedByTime[i - 1].timestamp)
+    timeDiffs.push(diff)
   }
+  const avgResponseTime =
+    timeDiffs.length > 0
+      ? Math.round(timeDiffs.reduce((a, b) => a + b, 0) / timeDiffs.length / 1000)
+      : 0
+
+  const stats = {
+    total: history.length,
+    today: todayMessages.length,
+    highUrgencyPercent: history.length > 0 ? Math.round((highUrgency / history.length) * 100) : 0,
+    avgPerDay: Math.round(history.length / totalDays),
+    escalatedCount: highUrgency,
+    avgConfidence,
+    avgResponseTime
+  }
+
+  const categories = {}
+  const categoryStats = {}
+  const urgencyData = { High: 0, Medium: 0, Low: 0 }
+
+  history.forEach(item => {
+    categories[item.category] = (categories[item.category] || 0) + 1
+
+    if (!categoryStats[item.category]) {
+      categoryStats[item.category] = {
+        highCount: 0,
+        totalCount: 0,
+        confidenceSum: 0,
+        confidenceCount: 0
+      }
+    }
+
+    categoryStats[item.category].totalCount += 1
+    if (item.urgency === 'High') {
+      categoryStats[item.category].highCount += 1
+    }
+    if (typeof item.confidence === 'number') {
+      categoryStats[item.category].confidenceSum += item.confidence
+      categoryStats[item.category].confidenceCount += 1
+    }
+
+    urgencyData[item.urgency] = (urgencyData[item.urgency] || 0) + 1
+  })
+
+  const categoryMetrics = Object.entries(categoryStats).map(([category, categoryStat]) => ({
+    category,
+    count: categories[category],
+    escalationRate:
+      categoryStat.totalCount > 0
+        ? Math.round((categoryStat.highCount / categoryStat.totalCount) * 100)
+        : 0,
+    avgConfidence:
+      categoryStat.confidenceCount > 0
+        ? Math.round((categoryStat.confidenceSum / categoryStat.confidenceCount) * 100)
+        : 0
+  }))
+
+  const categoryData = Object.entries(categories).map(([name, count]) => ({ name, count }))
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">

@@ -1,40 +1,19 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { getRecommendedAction } from '../utils/templates'
 
 function SettingsPage() {
-  const [customTemplates, setCustomTemplates] = useState({})
+  const [customTemplates, setCustomTemplates] = useState(() => JSON.parse(localStorage.getItem('customTemplates') || '{}'))
   const [selectedCategory, setSelectedCategory] = useState('Billing Issue')
   const [selectedUrgency, setSelectedUrgency] = useState('High')
-  const [currentAction, setCurrentAction] = useState('')
   const [saved, setSaved] = useState(false)
 
   const categories = ['Billing Issue', 'Technical Problem', 'Feature Request', 'General Inquiry']
   const urgencyLevels = ['High', 'Medium', 'Low']
 
-  useEffect(() => {
-    loadCustomTemplates()
-  }, [])
-
-  useEffect(() => {
-    updateCurrentAction()
-  }, [selectedCategory, selectedUrgency, customTemplates])
-
-  const loadCustomTemplates = () => {
-    const saved = JSON.parse(localStorage.getItem('customTemplates') || '{}')
-    setCustomTemplates(saved)
-  }
-
   const saveCustomTemplates = () => {
     localStorage.setItem('customTemplates', JSON.stringify(customTemplates))
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
-  }
-
-  const updateCurrentAction = () => {
-    const key = `${selectedCategory}|${selectedUrgency}`
-    const custom = customTemplates[key]
-    const defaultAction = getRecommendedAction(selectedCategory, selectedUrgency)
-    setCurrentAction(custom || defaultAction)
   }
 
   const handleUpdateAction = (newAction) => {
@@ -48,7 +27,6 @@ function SettingsPage() {
     }
 
     setCustomTemplates(updated)
-    setCurrentAction(newAction)
   }
 
   const handleReset = () => {
@@ -59,6 +37,10 @@ function SettingsPage() {
   }
 
   const customCount = Object.keys(customTemplates).length
+  const currentTemplateKey = `${selectedCategory}|${selectedUrgency}`
+  const currentAction =
+    customTemplates[currentTemplateKey] ||
+    getRecommendedAction(selectedCategory, selectedUrgency)
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
