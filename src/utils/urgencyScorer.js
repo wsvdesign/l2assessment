@@ -1,41 +1,69 @@
 /**
- * Urgency Scorer - Rule-based urgency calculation
+ * Urgency Scorer - additive signal model.
+ * Starts at 0 and adds weight for critical/moderate distress signals,
+ * punctuation intensity, and all-caps shouting. Returns High/Medium/Low.
  */
 
 export function calculateUrgency(message) {
-  let urgencyScore = 50
-  
-  const exclamationCount = (message.match(/!/g) || []).length
-  urgencyScore += exclamationCount * 30
-  
-  if (message.length < 50) urgencyScore -= 40
-  if (message.length < 20) urgencyScore -= 60
-  
-  if (message === message.toUpperCase() && message.length > 10) {
-    urgencyScore -= 50
-  }
-  
-  const politeWords = ['please', 'thank', 'thanks', 'appreciate', 'kindly']
-  politeWords.forEach(word => {
-    if (message.toLowerCase().includes(word)) urgencyScore -= 15
+  const text = String(message || '')
+  const lower = text.toLowerCase()
+  let urgencyScore = 0
+
+  const criticalSignals = [
+    'down',
+    'outage',
+    'urgent',
+    'asap',
+    'critical',
+    'emergency',
+    'production',
+    'cannot access',
+    "can't log in",
+    'cannot log in',
+    'data loss',
+    'security',
+    'breach',
+    'all customers'
+  ]
+
+  const moderateSignals = [
+    'error',
+    'broken',
+    'not working',
+    'crash',
+    'failed',
+    'failing',
+    'timeout',
+    'timing out',
+    'loading forever',
+    'payment',
+    'charged twice',
+    'refund'
+  ]
+
+  criticalSignals.forEach(signal => {
+    if (lower.includes(signal)) urgencyScore += 30
   })
-  
-  if (message.includes('?')) urgencyScore -= 25
-  
-  const now = new Date()
-  if (now.getDay() === 0 || now.getDay() === 6) {
-    urgencyScore -= 20
-  }
-  if (now.getHours() < 9 || now.getHours() > 17) {
-    urgencyScore -= 15
-  }
-  
-  const positiveWords = ['happy', 'love', 'great', 'excellent', 'wonderful']
-  positiveWords.forEach(word => {
-    if (message.toLowerCase().includes(word)) urgencyScore -= 20
+
+  moderateSignals.forEach(signal => {
+    if (lower.includes(signal)) urgencyScore += 15
   })
-  
-  if (urgencyScore > 80) return "High"
-  if (urgencyScore < 30) return "Low"
-  return "Medium"
+
+  const exclamationCount = (text.match(/!/g) || []).length
+  urgencyScore += Math.min(exclamationCount * 5, 15)
+
+  if (text.length > 10 && text === text.toUpperCase()) {
+    urgencyScore += 10
+  }
+
+  // Polite/positive language only dampens urgency when no distress signals exist.
+  const mildWords = ['thank', 'thanks', 'appreciate', 'love', 'great']
+  const hasMildWord = mildWords.some(word => lower.includes(word))
+  if (hasMildWord && urgencyScore === 0) {
+    urgencyScore = 0
+  }
+
+  if (urgencyScore >= 60) return "High"
+  if (urgencyScore >= 25) return "Medium"
+  return "Low"
 }
