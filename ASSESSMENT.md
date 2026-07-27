@@ -20,3 +20,4 @@ Following code review, the courtesy-dampening branch was rewritten from a no-op 
 - "I would love to see a dark mode option in the app." → Low
 - "Hi there! I just wanted to say thank you for your amazing customer service." → Low
 Before the fix, the first message scored Low. After the fix, it scores High.
+All six cases, including the courtesy-dampening and guard-rail scenarios, are codified as a permanent regression suite in tests/urgencyScorer.test.mjs, runnable with node --test and requiring no framework installation.
