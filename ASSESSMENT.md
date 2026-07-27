@@ -11,6 +11,7 @@
 
 ### Implemented Improvement
 Rewrote `src/utils/urgencyScorer.js` with signal-based scoring: critical signals (down, outage, production, urgent, security, data loss) add 30 points each, moderate signals (error, crash, payment, refund) add 15, exclamation marks add up to 15, and all-caps now raises urgency instead of lowering it. All penalties for brevity, politeness, questions, and time-of-day were removed, because customer urgency does not depend on when the triage tool happens to run.
+Following code review, the courtesy-dampening branch was rewritten from a no-op into a real adjustment: mild language subtracts 10 points only when no critical signal is present, and input is trimmed before length checks.
 
 ### Test Results (Live App Verification)
 
