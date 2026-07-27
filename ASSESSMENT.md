@@ -11,7 +11,7 @@
 
 ### Implemented Improvement
 Rewrote `src/utils/urgencyScorer.js` with signal-based scoring: critical signals (down, outage, production, urgent, security, data loss) add 30 points each, moderate signals (error, crash, payment, refund) add 15, exclamation marks add up to 15, and all-caps now raises urgency instead of lowering it. All penalties for brevity, politeness, questions, and time-of-day were removed, because customer urgency does not depend on when the triage tool happens to run.
-Following code review, the courtesy-dampening branch was rewritten from a no-op into a real adjustment: mild language subtracts 10 points only when no critical signal is present, and input is trimmed before length checks.
+Following code review, the courtesy-dampening branch was rewritten from a no-op into a real adjustment: mild language subtracts 10 points, gated on the absence of any critical signal. The gate is the point, not a detail: courteous phrasing should be able to soften a borderline complaint, but it must never be able to mask an outage. 'This is broken, but thanks for your patience!' now lands at Low through real dampening, while 'Production is down, but thanks for your patience!' stays High because the critical-signal guard blocks the reduction entirely. Input is trimmed before the all-caps and length checks so whitespace cannot distort them. Thresholds (60/25) are currently heuristic; a production version would tune them against a labeled sample of historical tickets rather than hand-picked examples.
 
 ### Test Results (Live App Verification)
 
